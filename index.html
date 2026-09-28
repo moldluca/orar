@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>Orar CNME 2026–2027</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -45,6 +46,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 body {
   background: var(--ground); color: var(--ink);
   font: 15px/1.45 var(--body);
@@ -121,6 +123,28 @@ td.todaycol .cell.empty { background: var(--now-soft); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 footer { font-size: 12px; color: var(--muted); }
 
+/* compare mode */
+.daytabs.always { display: flex; flex-wrap: wrap; }
+.linkish { color: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 2px; }
+.linkish:hover { text-decoration-color: var(--accent); }
+#summary { min-width: 360px; table-layout: auto; }
+#summary .ds { display: none; }
+#summary tbody th { font: 800 17px var(--display); color: var(--ink); white-space: nowrap; vertical-align: middle; }
+#summary td {
+  height: auto; padding: 7px 8px; white-space: nowrap; vertical-align: middle;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  font: 500 14px var(--mono); font-variant-numeric: tabular-nums;
+}
+#summary td .range { color: var(--muted); }
+#summary td.late { background: var(--now-soft); border-color: var(--now); }
+#summary td.off { color: var(--muted); font: 400 13px var(--body); border-style: dashed; background: transparent; }
+abbr.part { text-decoration: none; cursor: help; color: var(--accent); font-weight: 700; margin-left: 1px; }
+table.cmp thead th { text-transform: none; letter-spacing: 0; font: 800 18px var(--display); color: var(--ink); }
+table.cmp .full { display: none; }
+table.cmp tfoot th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; vertical-align: middle; }
+table.cmp tfoot td { height: auto; padding: 6px 9px; font: 700 15px var(--mono); color: var(--accent); }
+table.cmp tfoot td.off { font: 400 13px var(--body); color: var(--muted); }
+
 @media (max-width: 720px) {
   .daytabs { display: flex; flex-wrap: wrap; }
   table { min-width: 0; }
@@ -128,6 +152,10 @@ footer { font-size: 12px; color: var(--muted); }
   table.one-day th.dcol.show, table.one-day td.dcol.show { display: table-cell; }
   thead th.today::after { content: ""; }
   .level { grid-template-columns: 1fr; gap: 4px; }
+  #summary .dl { display: none; }
+  #summary .ds { display: inline; }
+  #summary { min-width: 0; border-spacing: 3px; }
+  #summary td { padding: 6px 3px; font-size: 13px; text-align: center; }
   h2 { font-size: 26px; }
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -144,6 +172,7 @@ footer { font-size: 12px; color: var(--muted); }
     <div class="seg" role="group" aria-label="Tip orar">
       <button id="mode-class" type="button" aria-pressed="true">Clase</button>
       <button id="mode-teacher" type="button" aria-pressed="false">Profesori</button>
+      <button id="mode-compare" type="button" aria-pressed="false">Compară</button>
     </div>
   </header>
 
@@ -153,6 +182,10 @@ footer { font-size: 12px; color: var(--muted); }
     <div class="title-row">
       <h2 id="title"></h2>
       <div class="meta" id="meta"></div>
+    </div>
+    <div id="summary-box" style="display:grid;gap:6px" hidden>
+      <div class="table-box"><table id="summary"></table></div>
+      <div class="meta" style="font-size:13px">Ora la care se termină ultima oră (începutul apare doar dacă nu e 8:00) · galben = termină cel mai târziu în ziua respectivă · <abbr class="part">*</abbr> ultima oră e doar pentru o grupă</div>
     </div>
     <div class="daytabs chips" id="daytabs"></div>
     <div class="table-box"><table id="grid" class="one-day"></table></div>
@@ -213,19 +246,25 @@ for (const c of DATA) {
 const TEACHER_LIST = Object.keys(TEACHERS).sort((a, b) => a.localeCompare(b, "ro"));
 const LEVELS = [["Gimnaziu", ["V", "VI", "VII", "VIII"]], ["a IX-a", "IX"], ["a X-a", "X"], ["a XI-a", "XI"], ["a XII-a", "XII"]];
 
-let state = { mode: "class", key: "XII A", day: null };
+const CLASS_ORDER = DATA.map(c => c.class);
+const sortClasses = list => CLASS_ORDER.filter(c => list.includes(c));
+
+let state = { mode: "class", key: "XII A", day: null, cmp: ["XII A"] };
 try { Object.assign(state, JSON.parse(localStorage.getItem("orar-cnme") || "{}")); } catch (e) {}
+state.cmp = Array.isArray(state.cmp) ? sortClasses(state.cmp) : ["XII A"];
 readHash();
 
 function readHash() {
-  const m = decodeURIComponent(location.hash.slice(1)).match(/^(clasa|prof)\/(.+)$/);
+  const m = decodeURIComponent(location.hash.slice(1)).match(/^(clasa|prof|compara)\/(.*)$/);
   if (!m) return;
+  if (m[1] === "compara") { Object.assign(state, { mode: "compare", cmp: sortClasses(m[2].split(",")) }); return; }
   const mode = m[1] === "clasa" ? "class" : "teacher";
   if (mode === "class" ? DATA.some(c => c.class === m[2]) : TEACHERS[m[2]]) Object.assign(state, { mode, key: m[2] });
 }
 function save() {
-  try { localStorage.setItem("orar-cnme", JSON.stringify({ mode: state.mode, key: state.key })); } catch (e) {}
-  const h = "#" + (state.mode === "class" ? "clasa/" : "prof/") + encodeURIComponent(state.key);
+  try { localStorage.setItem("orar-cnme", JSON.stringify({ mode: state.mode, key: state.key, cmp: state.cmp })); } catch (e) {}
+  const h = state.mode === "compare" ? "#compara/" + state.cmp.map(encodeURIComponent).join(",")
+    : "#" + (state.mode === "class" ? "clasa/" : "prof/") + encodeURIComponent(state.key);
   if (location.hash !== h) history.replaceState(null, "", h);
 }
 
@@ -266,11 +305,14 @@ function cellForTeacher(t, d, p) {
 
 function renderPicker() {
   const el = document.getElementById("picker");
-  if (state.mode === "class") {
+  if (state.mode !== "teacher") {
+    // compare mode uses data-cmp so a click toggles the class instead of opening it
+    const attr = state.mode === "class" ? "c" : "cmp";
+    const on = c => state.mode === "class" ? c === state.key : state.cmp.includes(c);
     el.innerHTML = LEVELS.map(([name, sel]) => {
       const list = DATA.filter(c => Array.isArray(sel) ? sel.includes(c.class) : c.class.split(" ")[0] === sel);
       return `<div class="level"><div class="level-name">${name}</div><div class="chips">${
-        list.map(c => `<button type="button" class="chip" data-c="${esc(c.class)}" aria-pressed="${c.class === state.key}">${esc(c.class)}</button>`).join("")
+        list.map(c => `<button type="button" class="chip" data-${attr}="${esc(c.class)}" aria-pressed="${on(c.class)}">${esc(c.class)}</button>`).join("")
       }</div></div>`;
     }).join("");
   } else {
@@ -288,11 +330,18 @@ function renderPicker() {
   }
   document.getElementById("mode-class").setAttribute("aria-pressed", state.mode === "class");
   document.getElementById("mode-teacher").setAttribute("aria-pressed", state.mode === "teacher");
+  document.getElementById("mode-compare").setAttribute("aria-pressed", state.mode === "compare");
 }
 
 function renderGrid() {
   const n = now();
   if (state.day === null) state.day = n.day >= 0 ? n.day : 0;
+  const compare = state.mode === "compare";
+  document.getElementById("summary-box").hidden = !compare;
+  document.getElementById("daytabs").classList.toggle("always", compare);
+  if (compare) return renderCompare(n);
+  const grid = document.getElementById("grid");
+  grid.className = "one-day"; grid.style.minWidth = "";
   const isClass = state.mode === "class";
   const title = document.getElementById("title"), meta = document.getElementById("meta");
   if (isClass) {
@@ -307,8 +356,7 @@ function renderGrid() {
     meta.innerHTML = `<b>${t.hours.size}</b> ore pe săptămână · ${t.classes.size} ${t.classes.size === 1 ? "clasă" : "clase"}` +
       (t.dirig ? ` · diriginte la <b><a data-c="${esc(t.dirig.cls)}" style="cursor:pointer;text-decoration:underline">${esc(t.dirig.cls)}</a></b>` : "");
   }
-  document.getElementById("daytabs").innerHTML = DAY_NAMES.map((d, i) =>
-    `<button type="button" class="chip" data-day="${i}" aria-pressed="${i === state.day}">${d}</button>`).join("");
+  renderDayTabs();
 
   const colCls = i => `dcol${i === state.day ? " show" : ""}${i === n.day ? " todaycol" : ""}`;
   let html = `<thead><tr><th class="per"></th>${DAY_NAMES.map((d, i) =>
@@ -321,16 +369,82 @@ function renderGrid() {
     });
     html += `</tr>`;
   });
-  document.getElementById("grid").innerHTML = html + "</tbody>";
+  grid.innerHTML = html + "</tbody>";
+}
+
+function renderDayTabs() {
+  document.getElementById("daytabs").innerHTML = DAY_NAMES.map((d, i) =>
+    `<button type="button" class="chip" data-day="${i}" aria-pressed="${i === state.day}">${d}</button>`).join("");
+}
+
+// first/last busy period of a class on a day; partial = last period is only for one group
+function spanOf(cls, d) {
+  const periods = DATA.find(c => c.class === cls).days[d];
+  const busy = periods.map(gs => gs.some(Boolean));
+  const first = busy.indexOf(true), last = busy.lastIndexOf(true);
+  if (first < 0) return null;
+  const gs = periods[last];
+  return { first, last, partial: gs.some(g => !g) ? (gs.find(Boolean).label || "o grupă") : null };
+}
+const startOf = p => TIMES[p].split("–")[0].replace(/^0/, "");
+const endOf = p => TIMES[p].split("–")[1].replace(/^0/, "");
+const star = s => s.partial ? `<abbr class="part" title="Ultima oră e doar pentru grupa ${esc(s.partial)}">*</abbr>` : "";
+
+function renderCompare(n) {
+  const cls = state.cmp, grid = document.getElementById("grid"), sum = document.getElementById("summary");
+  document.getElementById("title").textContent = "Compară clase";
+  document.getElementById("meta").innerHTML = cls.length
+    ? `${cls.length} ${cls.length === 1 ? "clasă" : "clase"} · <a class="linkish" data-clear>golește</a>`
+    : "Apasă pe clasele de mai sus ca să le adaugi.";
+  if (!cls.length) {
+    sum.innerHTML = grid.innerHTML = document.getElementById("daytabs").innerHTML = "";
+    document.getElementById("summary-box").hidden = true;
+    return;
+  }
+
+  const spans = cls.map(c => DAYS.map(d => spanOf(c, d)));
+  const latest = DAYS.map((d, i) => Math.max(...spans.map(s => s[i] ? s[i].last : -1)));
+  // highlight the latest class only when not everyone ends at the same time
+  const differs = DAYS.map((d, i) => spans.some(s => (s[i] ? s[i].last : -1) !== latest[i]));
+  sum.innerHTML = `<thead><tr><th><span class="dl">Termină la</span></th>${DAY_NAMES.map((d, i) =>
+    `<th class="${i === n.day ? "today" : ""}"><span class="dl">${d}</span><span class="ds">${DAYS[i]}</span></th>`).join("")}</tr></thead><tbody>${
+    cls.map((c, k) => `<tr><th scope="row"><a class="linkish" data-c="${esc(c)}">${esc(c)}</a></th>${
+      spans[k].map((s, i) => !s ? `<td class="off">liber</td>` :
+        `<td class="${differs[i] && s.last === latest[i] ? "late" : ""}">${s.first ? `<span class="range">${startOf(s.first)}–</span>` : ""}<b>${endOf(s.last)}</b>${star(s)}</td>`
+      ).join("")}</tr>`).join("")}</tbody>`;
+
+  renderDayTabs();
+  const d = DAYS[state.day];
+  grid.className = "cmp";
+  grid.style.minWidth = 74 + cls.length * 150 + "px";
+  let html = `<thead><tr><th class="per"></th>${cls.map(c =>
+    `<th><a class="linkish" data-c="${esc(c)}">${esc(c)}</a></th>`).join("")}</tr></thead><tbody>`;
+  TIMES.forEach((t, p) => {
+    const isNow = state.day === n.day && p === n.period;
+    html += `<tr class="${isNow ? "nowrow" : ""}"><th class="per" scope="row"><span class="n">${p + 1}</span><span class="t">${t.replace("–", "<br>")}</span></th>${
+      cls.map(c => `<td class="${isNow ? "nowcell" : ""}">${cellForClass(c, d, p)}</td>`).join("")}</tr>`;
+  });
+  html += `</tbody><tfoot><tr><th class="per">gata la</th>${cls.map(c => {
+    const s = spanOf(c, d);
+    return s ? `<td>${endOf(s.last)}${star(s)}</td>` : `<td class="off">liber</td>`;
+  }).join("")}</tr></tfoot>`;
+  grid.innerHTML = html;
 }
 
 function render() { renderPicker(); renderGrid(); save(); }
 function go(mode, key) { Object.assign(state, { mode, key }); render(); }
 
 document.addEventListener("click", e => {
-  const b = e.target.closest("[data-c],[data-t],[data-day],#mode-class,#mode-teacher");
+  const b = e.target.closest("[data-c],[data-t],[data-day],[data-cmp],[data-clear],#mode-class,#mode-teacher,#mode-compare");
   if (!b) return;
-  if (b.id === "mode-class") go("class", state.mode === "class" ? state.key : "XII A");
+  if (b.id === "mode-compare") { state.mode = "compare"; render(); }
+  else if (b.dataset.cmp) {
+    const c = b.dataset.cmp;
+    state.cmp = state.cmp.includes(c) ? state.cmp.filter(x => x !== c) : sortClasses([...state.cmp, c]);
+    render();
+  }
+  else if ("clear" in b.dataset) { state.cmp = []; render(); }
+  else if (b.id === "mode-class") go("class", state.mode === "class" ? state.key : "XII A");
   else if (b.id === "mode-teacher") go("teacher", state.mode === "teacher" ? state.key : TEACHER_LIST[0]);
   else if (b.dataset.day) { state.day = +b.dataset.day; renderGrid(); }
   else if (b.dataset.c) go("class", b.dataset.c);
